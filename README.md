@@ -1,8 +1,8 @@
-# BrowseGPT
+# Commandr
 
-[BrowseGPT](https://browsegpt.dev) is a chat interface that allows you to search the web and get answers to your questions. It is built with [Vercel AI SDK](https://www.npmjs.com/package/ai) and [Browserbase](https://www.browserbase.com/).
+[Commandr](https://Commandr.dev) is a chat interface that allows you to search the web and get answers to your questions. It is built with [Vercel AI SDK](https://www.npmjs.com/package/ai) and [Browserbase](https://www.browserbase.com/).
 
-![BrowseGPT Demo](./app/browsegpt.gif)
+![Commandr Demo](./app/Commandr.gif)
 
 ## Getting Started
 

@@ -1,13 +1,23 @@
 import { openai } from '@ai-sdk/openai';
 import { streamText, convertToCoreMessages, tool, generateText } from 'ai';
 import { z } from 'zod';
-import { chromium } from 'playwright';
 import {anthropic} from '@ai-sdk/anthropic'
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
+import { Stagehand } from '@browserbasehq/stagehand';
 
 const bb_api_key = process.env.BROWSERBASE_API_KEY!
 const bb_project_id = process.env.BROWSERBASE_PROJECT_ID!
+
+// Global Stagehand instance pool keyed by sessionId to avoid reconnecting/closing per action
+declare global {
+  // eslint-disable-next-line no-var
+  var __STAGEHAND_POOL__: Map<string, Stagehand> | undefined;
+}
+const STAGEHAND_POOL: Map<string, Stagehand> = globalThis.__STAGEHAND_POOL__ ?? (globalThis.__STAGEHAND_POOL__ = new Map());
+
+// Reduce noisy listener warnings under hot-reload
+try { (process as any).setMaxListeners?.(30); } catch {}
 
 // Helper functions (not exported)
 async function getDebugUrl(id: string) {
@@ -22,6 +32,46 @@ async function getDebugUrl(id: string) {
   return data;
 }
 
+async function createSessionWithOptions(opts: {
+  timeout?: number;
+  keepAlive?: boolean;
+  region?: 'us-west-2' | 'us-east-1' | 'eu-central-1' | 'ap-southeast-1';
+  viewport?: { width?: number; height?: number };
+  blockAds?: boolean;
+  solveCaptchas?: boolean;
+  recordSession?: boolean;
+  proxies?: boolean;
+  userMetadata?: Record<string, any>;
+}) {
+  const body: any = {
+    projectId: bb_project_id,
+    ...(opts.timeout ? { timeout: opts.timeout } : {}),
+    ...(typeof opts.keepAlive === 'boolean' ? { keepAlive: opts.keepAlive } : {}),
+    ...(opts.region ? { region: opts.region } : {}),
+    ...(typeof opts.proxies === 'boolean' ? { proxies: opts.proxies } : {}),
+    ...(opts.userMetadata ? { userMetadata: opts.userMetadata } : {}),
+    browserSettings: {
+      ...(opts.viewport?.width || opts.viewport?.height
+        ? { viewport: { width: opts.viewport?.width ?? 1280, height: opts.viewport?.height ?? 720 } }
+        : {}),
+      ...(typeof opts.blockAds === 'boolean' ? { blockAds: opts.blockAds } : {}),
+      ...(typeof opts.solveCaptchas === 'boolean' ? { solveCaptchas: opts.solveCaptchas } : {}),
+      ...(typeof opts.recordSession === 'boolean' ? { recordSession: opts.recordSession } : {}),
+    },
+  };
+
+  const response = await fetch(`https://www.browserbase.com/v1/sessions`, {
+    method: 'POST',
+    headers: {
+      'x-bb-api-key': bb_api_key,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  return { id: data.id, debugUrl: data.debugUrl };
+}
+
 async function createSession() {
   const response = await fetch(`https://www.browserbase.com/v1/sessions`, {
     method: "POST",
@@ -31,7 +81,8 @@ async function createSession() {
     },
     body: JSON.stringify({
       projectId: bb_project_id,
-      keepAlive: true
+      keepAlive: true,
+      timeout: 900
      }),
   });
   const data = await response.json();
@@ -39,7 +90,7 @@ async function createSession() {
 }
 
 // Main API route handler
-// export const runtime = 'nodejs';
+export const runtime = 'nodejs';
 export const maxDuration = 300; // Set max duration to 300 seconds (5 minutes)
 
 export async function POST(req: Request) {
@@ -61,6 +112,234 @@ export async function POST(req: Request) {
           return { sessionId: session.id, debugUrl: debugUrl.debuggerFullscreenUrl, toolName: 'Creating a new session'};
         },
       }),
+      createSessionAdvanced: tool({
+        description: 'Create a new Browserbase session with advanced options (timeout, keepAlive, region, viewport, proxies, etc.)',
+        parameters: z.object({
+          toolName: z.string().describe('What the tool is doing'),
+          timeout: z.number().min(60).max(21600).optional().describe('Session timeout in seconds'),
+          keepAlive: z.boolean().optional().describe('Keep session alive after disconnection (plan-dependent)'),
+          region: z.enum(['us-west-2','us-east-1','eu-central-1','ap-southeast-1']).optional(),
+          proxies: z.boolean().optional(),
+          viewport: z.object({ width: z.number().optional(), height: z.number().optional() }).partial().optional(),
+          blockAds: z.boolean().optional(),
+          solveCaptchas: z.boolean().optional(),
+          recordSession: z.boolean().optional(),
+          userMetadata: z.record(z.any()).optional(),
+        }),
+        execute: async ({ timeout, keepAlive, region, viewport, blockAds, solveCaptchas, recordSession, proxies, userMetadata }) => {
+          try {
+            const session = await createSessionWithOptions({
+              timeout,
+              keepAlive,
+              region,
+              viewport,
+              blockAds,
+              solveCaptchas,
+              recordSession,
+              proxies,
+              userMetadata,
+            });
+            const debugUrl = await getDebugUrl(session.id);
+            return { toolName: 'Creating a new session (advanced)', sessionId: session.id, debugUrl: debugUrl.debuggerFullscreenUrl };
+          } catch (error) {
+            console.error('Error in createSessionAdvanced:', error);
+            return { toolName: 'Creating a new session (advanced)', content: `Error creating session: ${error}`, dataCollected: false };
+          }
+        },
+      }),
+      closeStagehand: tool({
+        description: 'Close and cleanup the Stagehand instance for a given session. Use this when you are done interacting with the session.',
+        parameters: z.object({ sessionId: z.string().describe('Existing Browserbase session ID') }),
+        execute: async ({ sessionId }) => {
+          const inst = STAGEHAND_POOL.get(sessionId);
+          if (!inst) return { toolName: 'Close Stagehand', content: 'No Stagehand instance found for this session.', dataCollected: false };
+          try {
+            await inst.close();
+            STAGEHAND_POOL.delete(sessionId);
+            return { toolName: 'Close Stagehand', content: 'Stagehand closed.', dataCollected: true };
+          } catch (e) {
+            return { toolName: 'Close Stagehand', content: `Error closing Stagehand: ${e}`, dataCollected: false };
+          }
+        }
+      }),
+      stagehandAct: tool({
+        description: 'Use Stagehand to take a natural-language action on the current page. Prefer this for robust interactions (click, type, press).',
+        parameters: z.object({
+          toolName: z.string().describe('What the tool is doing'),
+          instruction: z.string().describe('The action to perform, e.g., "click \"Sign in\""'),
+          sessionId: z.string().describe('Existing Browserbase session ID. If none, create one first.'),
+          debuggerFullscreenUrl: z.string().optional().describe('Optional debugger URL (not required).'),
+        }),
+        execute: async ({ instruction, sessionId }) => {
+          try {
+            let stagehand = STAGEHAND_POOL.get(sessionId);
+            if (!stagehand) {
+              stagehand = new Stagehand({
+                env: 'BROWSERBASE',
+                apiKey: process.env.BROWSERBASE_API_KEY,
+                projectId: process.env.BROWSERBASE_PROJECT_ID,
+                browserbaseSessionID: sessionId,
+                modelName: 'gpt-4o',
+                modelClientOptions: {
+                  apiKey: process.env.OPENAI_API_KEY,
+                },
+                // Avoid pino-pretty transport issues in Next.js bundlers
+                disablePino: true,
+                verbose: 0,
+                domSettleTimeoutMs: 60000,
+                selfHeal: true,
+              });
+              await stagehand.init();
+              STAGEHAND_POOL.set(sessionId, stagehand);
+            }
+            const page = stagehand.page;
+            try { page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(45000); } catch {}
+
+            let result: any;
+            try {
+              result = await page.act(instruction);
+            } catch (e) {
+              const msg = String((e as any)?.toString?.() ?? e);
+              if (msg.includes('Execution context was destroyed')) {
+                try { await page.waitForLoadState('load', { timeout: 10000 }); } catch {}
+                result = await page.act(instruction);
+              } else {
+                throw e;
+              }
+            }
+            return {
+              toolName: 'Stagehand act',
+              content: typeof result === 'object' && 'message' in result ? (result as any).message : 'Action executed',
+              dataCollected: true,
+            };
+          } catch (error) {
+            console.error('Error in stagehandAct:', error);
+            const msg = String(error?.toString?.() ?? error);
+            if (msg.includes('409') || msg.includes('not currently active') || msg.includes('Session closed')) {
+              try { STAGEHAND_POOL.delete(sessionId); } catch {}
+            }
+            return {
+              toolName: 'Stagehand act',
+              content: `Error performing action: ${error}`,
+              dataCollected: false,
+            };
+          }
+        },
+      }),
+      stagehandExtract: tool({
+        description: 'Use Stagehand to extract structured data from the current page as plain text.',
+        parameters: z.object({
+          toolName: z.string().describe('What the tool is doing'),
+          instruction: z.string().describe('What to extract, e.g., "extract the main headline"'),
+          sessionId: z.string().describe('Existing Browserbase session ID. If none, create one first.'),
+          debuggerFullscreenUrl: z.string().optional().describe('Optional debugger URL (not required).'),
+        }),
+        execute: async ({ instruction, sessionId }) => {
+          try {
+            let stagehand = STAGEHAND_POOL.get(sessionId);
+            if (!stagehand) {
+              stagehand = new Stagehand({
+                env: 'BROWSERBASE',
+                apiKey: process.env.BROWSERBASE_API_KEY,
+                projectId: process.env.BROWSERBASE_PROJECT_ID,
+                browserbaseSessionID: sessionId,
+                modelName: 'gpt-4o',
+                modelClientOptions: {
+                  apiKey: process.env.OPENAI_API_KEY,
+                },
+                // Avoid pino-pretty transport issues in Next.js bundlers
+                disablePino: true,
+                verbose: 0,
+                domSettleTimeoutMs: 60000,
+                selfHeal: true,
+              });
+              await stagehand.init();
+              STAGEHAND_POOL.set(sessionId, stagehand);
+            }
+            const page = stagehand.page;
+
+            try { page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(45000); } catch {}
+
+            let data: any;
+            try {
+              data = await page.extract({
+                instruction,
+                schema: z.object({ text: z.string() }),
+              });
+            } catch (e) {
+              const msg = String((e as any)?.toString?.() ?? e);
+              if (msg.includes('Execution context was destroyed')) {
+                try { await page.waitForLoadState('load', { timeout: 10000 }); } catch {}
+                data = await page.extract({
+                  instruction,
+                  schema: z.object({ text: z.string() }),
+                });
+              } else {
+                throw e;
+              }
+            }
+            return {
+              toolName: 'Stagehand extract',
+              content: (data?.text as string | undefined) ?? (data?.extraction as string | undefined) ?? JSON.stringify(data),
+              dataCollected: true,
+            };
+          } catch (error) {
+            console.error('Error in stagehandExtract:', error);
+            const msg = String(error?.toString?.() ?? error);
+            if (msg.includes('409') || msg.includes('not currently active') || msg.includes('Session closed')) {
+              try { STAGEHAND_POOL.delete(sessionId); } catch {}
+            }
+            return {
+              toolName: 'Stagehand extract',
+              content: `Error extracting content: ${error}`,
+              dataCollected: false,
+            };
+          }
+        },
+      }),
+      navigateTo: tool({
+        description: 'Directly navigate to a specific URL in the existing browser session. Prefer this when the user requests to open a known site (e.g., "go to bestbuy.com").',
+        parameters: z.object({
+          toolName: z.string().describe('What the tool is doing'),
+          url: z.string().describe('The full URL to navigate to (e.g., https://www.bestbuy.com). Include scheme.'),
+          sessionId: z.string().describe('The session ID to use. If none exists, create one with createSession Tool.'),
+          debuggerFullscreenUrl: z.string().describe('The fullscreen debug URL for the session.'),
+        }),
+        execute: async ({ url, sessionId }) => {
+          try {
+            let stagehand = STAGEHAND_POOL.get(sessionId);
+            if (!stagehand) {
+              stagehand = new Stagehand({
+                env: 'BROWSERBASE',
+                apiKey: process.env.BROWSERBASE_API_KEY,
+                projectId: process.env.BROWSERBASE_PROJECT_ID,
+                browserbaseSessionID: sessionId,
+                modelName: 'gpt-4o',
+                modelClientOptions: { apiKey: process.env.OPENAI_API_KEY },
+                disablePino: true,
+                verbose: 0,
+                domSettleTimeoutMs: 60000,
+                selfHeal: true,
+              });
+              await stagehand.init();
+              STAGEHAND_POOL.set(sessionId, stagehand);
+            }
+            const page = stagehand.page;
+            await page.goto(url, { waitUntil: 'load' });
+            try { await page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch {}
+            try { await page.waitForLoadState('networkidle', { timeout: 7500 }); } catch {}
+            const title = await page.title();
+            return { toolName: 'Navigating to URL', content: `Navigated to ${url}. Page title: ${title}`, dataCollected: true };
+          } catch (error) {
+            console.error('Error in navigateTo:', error);
+            const msg = String(error?.toString?.() ?? error);
+            if (msg.includes('409') || msg.includes('not currently active') || msg.includes('Session closed')) {
+              try { STAGEHAND_POOL.delete(sessionId); } catch {}
+            }
+            return { toolName: 'Navigating to URL', content: `Error navigating to ${url}: ${error}`, dataCollected: false };
+          }
+        },
+      }),
       askForConfirmation: tool({
         description: 'Ask the user for confirmation.',
         parameters: z.object({
@@ -68,7 +347,7 @@ export async function POST(req: Request) {
         }),
       }),
       googleSearch: tool({
-        description: 'Search Google for a query',
+        description: 'Search the web for a query using DuckDuckGo (preferred to reduce captchas). Use this when the user requests to "search" or find information, not when they ask to open a specific site.',
         parameters: z.object({
           toolName: z.string().describe('What the tool is doing'),
           query: z.string().describe('The exact and complete search query as provided by the user. Do not modify this in any way.'),
@@ -77,49 +356,51 @@ export async function POST(req: Request) {
         }),
         execute: async ({ query, sessionId }) => {
           try {
-      
-            const browser = await chromium.connectOverCDP(
-              `wss://connect.browserbase.com?apiKey=${bb_api_key}&sessionId=${sessionId}`
-            );
-            const defaultContext = browser.contexts()[0];
-            const page = defaultContext.pages()[0];
-          
-            await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
-            await page.waitForTimeout(500);
-            await page.keyboard.press('Enter');
-            await page.waitForLoadState('load', { timeout: 10000 });
-            
-            await page.waitForSelector('.g');
-
+            let stagehand = STAGEHAND_POOL.get(sessionId);
+            if (!stagehand) {
+              stagehand = new Stagehand({
+                env: 'BROWSERBASE',
+                apiKey: process.env.BROWSERBASE_API_KEY,
+                projectId: process.env.BROWSERBASE_PROJECT_ID,
+                browserbaseSessionID: sessionId,
+                modelName: 'gpt-4o',
+                modelClientOptions: { apiKey: process.env.OPENAI_API_KEY },
+                disablePino: true,
+                verbose: 0,
+                domSettleTimeoutMs: 60000,
+                selfHeal: true,
+              });
+              await stagehand.init();
+              STAGEHAND_POOL.set(sessionId, stagehand);
+            }
+            const page = stagehand.page;
+            await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, { waitUntil: 'load' });
+            try { await page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch {}
+            try { await page.waitForLoadState('networkidle', { timeout: 7500 }); } catch {}
+            await page.waitForSelector('div.result');
             const results = await page.evaluate(() => {
-              const items = document.querySelectorAll('.g');
-              return Array.from(items).map(item => {
-                const title = item.querySelector('h3')?.textContent || '';
-                const description = item.querySelector('.VwiC3b')?.textContent || '';
+              const items = document.querySelectorAll('div.result');
+              return Array.from(items).map((item) => {
+                const title = (item.querySelector('a.result__a') as HTMLElement)?.innerText || '';
+                const description = (item.querySelector('a.result__snippet') as HTMLElement)?.innerText || '';
                 return { title, description };
               });
             });
-            
-            const text = results.map(item => `${item.title}\n${item.description}`).join('\n\n');
+            const typedResults = results as Array<{ title: string; description: string }>;
+            const text = typedResults.map((item) => `${item.title}\n${item.description}`).join('\n\n');
 
             const response = await generateText({
-              // model: openai('gpt-4-turbo'),
               model: anthropic('claude-3-5-sonnet-20240620'),
               prompt: `Evaluate the following web page content: ${text}`,
             });
-
-            return {
-              toolName: 'Searching Google',
-              content: response.text,
-              dataCollected: true,
-            };
+            return { toolName: 'Searching the web', content: response.text, dataCollected: true };
           } catch (error) {
-            console.error('Error in googleSearch:', error);
-            return {
-              toolName: 'Searching Google',
-              content: `Error performing Google search: ${error}`,
-              dataCollected: false,
-            };
+            console.error('Error in webSearch:', error);
+            const msg = String(error?.toString?.() ?? error);
+            if (msg.includes('409') || msg.includes('not currently active') || msg.includes('Session closed')) {
+              try { STAGEHAND_POOL.delete(sessionId); } catch {}
+            }
+            return { toolName: 'Searching the web', content: `Error performing web search: ${error}` , dataCollected: false };
           }
         },
       }),
@@ -133,38 +414,44 @@ export async function POST(req: Request) {
         }),
         execute: async ({ url, sessionId }) => {
           try {
-            
-            const browser = await chromium.connectOverCDP(
-              `wss://connect.browserbase.com?apiKey=${process.env.BROWSERBASE_API_KEY}&sessionId=${sessionId}`
-            );
-            const defaultContext = browser.contexts()[0];
-            const page = defaultContext.pages()[0];
-          
+            let stagehand = STAGEHAND_POOL.get(sessionId);
+            if (!stagehand) {
+              stagehand = new Stagehand({
+                env: 'BROWSERBASE',
+                apiKey: process.env.BROWSERBASE_API_KEY,
+                projectId: process.env.BROWSERBASE_PROJECT_ID,
+                browserbaseSessionID: sessionId,
+                modelName: 'gpt-4o',
+                modelClientOptions: { apiKey: process.env.OPENAI_API_KEY },
+                disablePino: true,
+                verbose: 0,
+                domSettleTimeoutMs: 60000,
+                selfHeal: true,
+              });
+              await stagehand.init();
+              STAGEHAND_POOL.set(sessionId, stagehand);
+            }
+            const page = stagehand.page;
             await page.goto(url);
-          
+            try { await page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch {}
+            try { await page.waitForLoadState('networkidle', { timeout: 7500 }); } catch {}
             const content = await page.content();
             const dom = new JSDOM(content);
             const reader = new Readability(dom.window.document);
             const article = reader.parse();
-
             const text = `${article?.title || ''}\n${article?.textContent || ''}`;
-
             const response = await generateText({
-              // model: openai('gpt-4-turbo'),
               model: anthropic('claude-3-5-sonnet-20240620'),
               prompt: `Evaluate the following web page content: ${text}`,
             });
-
-            return {
-              toolName: 'Getting page content',
-              content: response.text,
-            };
+            return { toolName: 'Getting page content', content: response.text };
           } catch (error) {
             console.error('Error in getPageContent:', error);
-            return {
-              toolName: 'Getting page content',
-              content: `Error fetching page content: ${error}`,
-            };
+            const msg = String(error?.toString?.() ?? error);
+            if (msg.includes('409') || msg.includes('not currently active') || msg.includes('Session closed')) {
+              try { STAGEHAND_POOL.delete(sessionId); } catch {}
+            }
+            return { toolName: 'Getting page content', content: `Error fetching page content: ${error}` };
           }
         },
       }),
