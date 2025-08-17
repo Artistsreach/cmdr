@@ -35,6 +35,11 @@ const nextConfig = {
 
       // Ensure webpack doesn't try to polyfill/resolve these in server bundle
       config.resolve = config.resolve || {};
+      // Alias 'playwright' to 'playwright-core' to satisfy imports without bundling browsers
+      config.resolve.alias = {
+        ...(config.resolve.alias || {}),
+        playwright: 'playwright-core',
+      };
       config.resolve.fallback = {
         ...(config.resolve.fallback || {}),
         electron: false,
