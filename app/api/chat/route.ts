@@ -23,7 +23,6 @@ async function getStagehand(sessionId: string): Promise<Stagehand> {
     stagehand = new Stagehand({
       env: 'BROWSERBASE',
       apiKey: process.env.BROWSERBASE_API_KEY,
-      projectId: process.env.BROWSERBASE_PROJECT_ID,
       browserbaseSessionID: sessionId,
       disablePino: true,
       verbose: 0,
@@ -198,7 +197,8 @@ export async function POST(req: Request) {
 
             let result: unknown;
             try {
-              result = await page.act(instruction, {
+              result = await page.act({
+                action: instruction,
                 modelName: 'gpt-4o',
                 modelClientOptions: {
                   apiKey: process.env.OPENAI_API_KEY,
@@ -208,7 +208,13 @@ export async function POST(req: Request) {
               const msg = String((e as unknown as { toString?: () => string })?.toString?.() ?? e);
               if (msg.includes('Execution context was destroyed')) {
                 try { await page.waitForLoadState('load', { timeout: 10000 }); } catch {}
-                result = await page.act(instruction);
+                result = await page.act({
+                  action: instruction,
+                  modelName: 'gpt-4o',
+                  modelClientOptions: {
+                    apiKey: process.env.OPENAI_API_KEY,
+                  },
+                });
               } else {
                 throw e;
               }
@@ -266,6 +272,10 @@ export async function POST(req: Request) {
                 data = await page.extract({
                   instruction,
                   schema: z.object({ text: z.string() }),
+                  modelName: 'gpt-4o',
+                  modelClientOptions: {
+                    apiKey: process.env.OPENAI_API_KEY,
+                  },
                 });
               } else {
                 throw e;
