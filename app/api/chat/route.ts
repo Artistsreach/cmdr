@@ -83,7 +83,7 @@ async function createSession() {
     body: JSON.stringify({
       projectId: bb_project_id,
       keepAlive: true,
-      timeout: 900
+      timeout: 600
      }),
   });
   const data = await response.json();
@@ -92,7 +92,7 @@ async function createSession() {
 
 // Main API route handler
 export const runtime = 'nodejs';
-export const maxDuration = 300; // Set max duration to 300 seconds (5 minutes)
+export const maxDuration = 600; // Set max duration to 600 seconds (10 minutes)
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
@@ -180,7 +180,7 @@ export async function POST(req: Request) {
                 apiKey: process.env.BROWSERBASE_API_KEY,
                 projectId: process.env.BROWSERBASE_PROJECT_ID,
                 browserbaseSessionID: sessionId,
-                modelName: 'gpt-5',
+                modelName: 'gpt-4o',
                 modelClientOptions: {
                   apiKey: process.env.OPENAI_API_KEY,
                 },
