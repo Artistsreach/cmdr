@@ -83,7 +83,7 @@ async function createSession() {
     body: JSON.stringify({
       projectId: bb_project_id,
       keepAlive: true,
-      timeout: 600
+      timeout: 900
      }),
   });
   const data = await response.json();
