@@ -15,6 +15,7 @@ function Chat() {
   const searchParams = useSearchParams();
   const autoStartedRef = useRef(false);
   const [assistantIdx, setAssistantIdx] = useState<number>(-1);
+  const [showMessages, setShowMessages] = useState<boolean>(true);
 
   // Only assistant text messages (exclude tool invocations)
   const assistantMessages = useMemo(() =>
@@ -109,36 +110,58 @@ function Chat() {
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mb-6 flex justify-center px-4">
         <div className="pointer-events-auto w-full max-w-2xl rounded-xl border border-white/10 bg-black/60 backdrop-blur-xl shadow-2xl">
           <div className="px-4 py-3 space-y-3">
-            {/* Assistant bubble (one at a time) */}
-            {assistantIdx > -1 && assistantMessages[assistantIdx] && (
-              <div className="relative w-full rounded-lg border border-gray-700 bg-neutral-900/90 text-white px-3 py-3">
-                <div className="pr-16 whitespace-pre-wrap text-sm leading-relaxed">
-                  {assistantMessages[assistantIdx].content}
-                </div>
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-1">
-                  <button
-                    type="button"
-                    className="h-7 w-7 rounded-md border border-gray-700 bg-neutral-800 text-gray-200 hover:text-green-400 disabled:opacity-40"
-                    onClick={() => setAssistantIdx(i => Math.max(0, i - 1))}
-                    disabled={assistantIdx <= 0}
-                    aria-label="Previous assistant message"
-                    title="Previous"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    type="button"
-                    className="h-7 w-7 rounded-md border border-gray-700 bg-neutral-800 text-gray-200 hover:text-green-400 disabled:opacity-40"
-                    onClick={() => setAssistantIdx(i => Math.min(assistantMessages.length - 1, i + 1))}
-                    disabled={assistantIdx >= assistantMessages.length - 1}
-                    aria-label="Next assistant message"
-                    title="Next"
-                  >
-                    ▼
-                  </button>
-                </div>
+            {/* Toolbar (hidden until there's at least one assistant message) */}
+            {assistantMessages.length > 0 && (
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowMessages(v => !v)}
+                  aria-expanded={showMessages}
+                  aria-controls="assistant-section"
+                  className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-gray-700 bg-neutral-800/80 px-2 py-1 text-xs text-gray-200 hover:text-green-400 hover:border-green-600 transition-colors"
+                  title={showMessages ? 'Hide messages' : 'Show messages'}
+                >
+                  <span>{showMessages ? 'Hide' : 'Show'} messages</span>
+                  <span aria-hidden className={`transition-transform duration-200 ${showMessages ? '' : 'rotate-180'}`}>▾</span>
+                </button>
               </div>
             )}
+
+            {/* Assistant bubble (one at a time) with slide animation */}
+            <div
+              id="assistant-section"
+              className={`overflow-hidden transition-all duration-300 ease-out ${showMessages ? 'max-h-64 opacity-100 translate-y-0' : 'max-h-0 opacity-0 -translate-y-2'}`}
+            >
+              {assistantIdx > -1 && assistantMessages[assistantIdx] && (
+                <div className="relative w-full rounded-lg border border-gray-700 bg-neutral-900/90 text-white px-3 py-3">
+                  <div className="pr-16 whitespace-pre-wrap text-sm leading-relaxed">
+                    {assistantMessages[assistantIdx].content}
+                  </div>
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-1">
+                    <button
+                      type="button"
+                      className="h-7 w-7 rounded-md border border-gray-700 bg-neutral-800 text-gray-200 hover:text-green-400 disabled:opacity-40"
+                      onClick={() => setAssistantIdx(i => Math.max(0, i - 1))}
+                      disabled={assistantIdx <= 0}
+                      aria-label="Previous assistant message"
+                      title="Previous"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      className="h-7 w-7 rounded-md border border-gray-700 bg-neutral-800 text-gray-200 hover:text-green-400 disabled:opacity-40"
+                      onClick={() => setAssistantIdx(i => Math.min(assistantMessages.length - 1, i + 1))}
+                      disabled={assistantIdx >= assistantMessages.length - 1}
+                      aria-label="Next assistant message"
+                      title="Next"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <form id="chat-form" onSubmit={handleSubmitWrapper} className="w-full relative">
               <input
                 className="w-full p-3 pr-12 rounded-md border border-gray-600 bg-neutral-900/80 text-white placeholder-gray-400 transition-all duration-200 ease-in-out shadow-md shadow-black/40 focus:border-blue-400 focus:shadow-lg focus:shadow-blue-400/30 outline-none"
