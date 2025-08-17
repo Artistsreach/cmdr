@@ -3,6 +3,7 @@
 import { useChat } from 'ai/react';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import FlickeringGrid from '@/components/ui/flickering-grid';
 
 export default function Chat() {
@@ -32,11 +33,17 @@ export default function Chat() {
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
     if (lastMessage?.toolInvocations) {
-      for (const invocation of lastMessage.toolInvocations) {
-        const debugUrl = (invocation as any)?.args?.debuggerFullscreenUrl as string | undefined;
-        if (debugUrl) {
-          // Always hide navbar for maximal viewport
-          setLiveViewUrl(`${debugUrl}&navBar=false`);
+      for (const invocation of lastMessage.toolInvocations as unknown as Array<unknown>) {
+        if (invocation && typeof invocation === 'object') {
+          const invObj = invocation as Record<string, unknown>;
+          const args = invObj['args'];
+          if (args && typeof args === 'object') {
+            const dbg = (args as Record<string, unknown>)['debuggerFullscreenUrl'];
+            if (typeof dbg === 'string' && dbg) {
+              // Always hide navbar for maximal viewport
+              setLiveViewUrl(`${dbg}&navBar=false`);
+            }
+          }
         }
       }
     }
@@ -63,12 +70,12 @@ export default function Chat() {
           <FlickeringGrid className="fixed inset-0 z-0 h-full w-full bg-black" color="rgb(34, 197, 94)" />
           <div className="fixed inset-0 z-10 flex items-center justify-center">
             <div className="flex items-center justify-center">
-              <img
+              <Image
                 src="https://inrveiaulksfmzsbyzqj.supabase.co/storage/v1/object/public/images/CMDrLogo.png"
                 alt="CMDr"
-                className="max-w-[320px] h-auto"
-                loading="eager"
-                referrerPolicy="no-referrer"
+                width={320}
+                height={160}
+                priority
               />
             </div>
           </div>

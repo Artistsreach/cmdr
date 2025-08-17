@@ -2,6 +2,7 @@ import { openai } from '@ai-sdk/openai';
 import { streamText, convertToCoreMessages, tool, generateText } from 'ai';
 import { z } from 'zod';
 import {anthropic} from '@ai-sdk/anthropic'
+import { EventEmitter } from 'events';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import { Stagehand } from '@browserbasehq/stagehand';
@@ -17,7 +18,7 @@ declare global {
 const STAGEHAND_POOL: Map<string, Stagehand> = globalThis.__STAGEHAND_POOL__ ?? (globalThis.__STAGEHAND_POOL__ = new Map());
 
 // Reduce noisy listener warnings under hot-reload
-try { (process as any).setMaxListeners?.(30); } catch {}
+try { (process as unknown as EventEmitter).setMaxListeners?.(30); } catch {}
 
 // Helper functions (not exported)
 async function getDebugUrl(id: string) {
@@ -41,9 +42,9 @@ async function createSessionWithOptions(opts: {
   solveCaptchas?: boolean;
   recordSession?: boolean;
   proxies?: boolean;
-  userMetadata?: Record<string, any>;
+  userMetadata?: Record<string, unknown>;
 }) {
-  const body: any = {
+  const body: Record<string, unknown> = {
     projectId: bb_project_id,
     ...(opts.timeout ? { timeout: opts.timeout } : {}),
     ...(typeof opts.keepAlive === 'boolean' ? { keepAlive: opts.keepAlive } : {}),
@@ -195,11 +196,11 @@ export async function POST(req: Request) {
             const page = stagehand.page;
             try { page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(45000); } catch {}
 
-            let result: any;
+            let result: unknown;
             try {
               result = await page.act(instruction);
             } catch (e) {
-              const msg = String((e as any)?.toString?.() ?? e);
+              const msg = String((e as unknown as { toString?: () => string })?.toString?.() ?? e);
               if (msg.includes('Execution context was destroyed')) {
                 try { await page.waitForLoadState('load', { timeout: 10000 }); } catch {}
                 result = await page.act(instruction);
@@ -209,7 +210,9 @@ export async function POST(req: Request) {
             }
             return {
               toolName: 'Stagehand act',
-              content: typeof result === 'object' && 'message' in result ? (result as any).message : 'Action executed',
+              content: typeof result === 'object' && result !== null && 'message' in result
+                ? (result as { message?: string }).message ?? 'Action executed'
+                : 'Action executed',
               dataCollected: true,
             };
           } catch (error) {
@@ -260,14 +263,14 @@ export async function POST(req: Request) {
 
             try { page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(45000); } catch {}
 
-            let data: any;
+            let data: unknown;
             try {
               data = await page.extract({
                 instruction,
                 schema: z.object({ text: z.string() }),
               });
             } catch (e) {
-              const msg = String((e as any)?.toString?.() ?? e);
+              const msg = String((e as unknown as { toString?: () => string })?.toString?.() ?? e);
               if (msg.includes('Execution context was destroyed')) {
                 try { await page.waitForLoadState('load', { timeout: 10000 }); } catch {}
                 data = await page.extract({
@@ -280,7 +283,11 @@ export async function POST(req: Request) {
             }
             return {
               toolName: 'Stagehand extract',
-              content: (data?.text as string | undefined) ?? (data?.extraction as string | undefined) ?? JSON.stringify(data),
+              content: (typeof data === 'object' && data !== null && 'text' in data
+                ? (data as { text?: string }).text
+                : undefined) ?? (typeof data === 'object' && data !== null && 'extraction' in data
+                ? (data as { extraction?: string }).extraction
+                : undefined) ?? JSON.stringify(data),
               dataCollected: true,
             };
           } catch (error) {
