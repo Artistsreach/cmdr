@@ -48,7 +48,7 @@ async function getStagehand(sessionId: string): Promise<Stagehand> {
 }
 
 async function getDebugUrl(id: string) {
-  const response = await fetch(`https://www.browserbase.com/v1/sessions/${id}/debug`, {
+  const response = await fetch(`https://api.browserbase.com/v1/sessions/${id}/debug`, {
     method: "GET",
     headers: {
       "x-bb-api-key": bb_api_key,
@@ -87,7 +87,7 @@ async function createSessionWithOptions(opts: {
     },
   };
 
-  const response = await fetch(`https://www.browserbase.com/v1/sessions`, {
+  const response = await fetch(`https://api.browserbase.com/v1/sessions`, {
     method: 'POST',
     headers: {
       'x-bb-api-key': bb_api_key,
@@ -100,7 +100,7 @@ async function createSessionWithOptions(opts: {
 }
 
 async function createSession() {
-  const response = await fetch(`https://www.browserbase.com/v1/sessions`, {
+  const response = await fetch(`https://api.browserbase.com/v1/sessions`, {
     method: "POST",
     headers: {
       "x-bb-api-key": bb_api_key,
