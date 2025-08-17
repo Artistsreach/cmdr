@@ -6,11 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import FlickeringGrid from '@/components/ui/flickering-grid';
 
-type ToolResult = {
-  debugUrl?: string;
-  sessionId?: string;
-};
-
 function Chat() {
   const { messages, input, handleInputChange, handleSubmit } = useChat({
     maxSteps: 5,
@@ -39,20 +34,12 @@ function Chat() {
 
   // Auto-start when a `command` (or `cmd`) query param is present
   useEffect(() => {
-    const command = searchParams?.get('command') ?? searchParams?.get('cmd');
-    const sessionId = searchParams?.get('sessionId');
-
-    if (command && !autoStartedRef.current) {
+    const param = searchParams?.get('command') ?? searchParams?.get('cmd');
+    if (param && !autoStartedRef.current) {
       autoStartedRef.current = true;
-      
-      let value = command;
-      if (sessionId) {
-        value = `In session ${sessionId}, ${command}`;
-      }
-
       // Mirror the manual flow: set input, then submit the real form
       try {
-        handleInputChange({ target: { value } } as unknown as React.ChangeEvent<HTMLInputElement>);
+        handleInputChange({ target: { value: param } } as unknown as React.ChangeEvent<HTMLInputElement>);
         // Allow state to flush before submitting
         setTimeout(() => {
           const form = document.getElementById('chat-form') as HTMLFormElement | null;
@@ -66,22 +53,15 @@ function Chat() {
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
     if (lastMessage?.toolInvocations) {
-      for (const invocation of lastMessage.toolInvocations) {
-        // The result is populated by the useChat hook
-        if ('result' in invocation && invocation.result) {
-          const result = invocation.result as ToolResult;
-          if (result.debugUrl) {
-            const dbg = result.debugUrl;
-            setLiveViewUrl(`${dbg}&navBar=false`);
-          }
-          if (result.sessionId) {
-            const sessionId = result.sessionId;
-            if (window.history) {
-              const url = new URL(window.location.href);
-              if (url.searchParams.get('sessionId') !== sessionId) {
-                url.searchParams.set('sessionId', sessionId);
-                window.history.replaceState({ ...window.history.state, as: url.href, url: url.href }, '', url.href);
-              }
+      for (const invocation of lastMessage.toolInvocations as unknown as Array<unknown>) {
+        if (invocation && typeof invocation === 'object') {
+          const invObj = invocation as Record<string, unknown>;
+          const args = invObj['args'];
+          if (args && typeof args === 'object') {
+            const dbg = (args as Record<string, unknown>)['debuggerFullscreenUrl'];
+            if (typeof dbg === 'string' && dbg) {
+              // Always hide navbar for maximal viewport
+              setLiveViewUrl(`${dbg}&navBar=false`);
             }
           }
         }
