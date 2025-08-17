@@ -179,7 +179,7 @@ export async function POST(req: Request) {
                 apiKey: process.env.BROWSERBASE_API_KEY,
                 projectId: process.env.BROWSERBASE_PROJECT_ID,
                 browserbaseSessionID: sessionId,
-                modelName: 'gpt-4o',
+                modelName: 'gpt-5',
                 modelClientOptions: {
                   apiKey: process.env.OPENAI_API_KEY,
                 },
