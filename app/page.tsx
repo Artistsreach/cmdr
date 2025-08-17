@@ -6,6 +6,11 @@ import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import FlickeringGrid from '@/components/ui/flickering-grid';
 
+type ToolResult = {
+  debugUrl?: string;
+  sessionId?: string;
+};
+
 function Chat() {
   const { messages, input, handleInputChange, handleSubmit } = useChat({
     maxSteps: 5,
@@ -64,7 +69,7 @@ function Chat() {
       for (const invocation of lastMessage.toolInvocations) {
         // The result is populated by the useChat hook
         if ('result' in invocation && invocation.result) {
-          const result = (invocation as any).result;
+          const result = invocation.result as ToolResult;
           if (result.debugUrl) {
             const dbg = result.debugUrl;
             setLiveViewUrl(`${dbg}&navBar=false`);
