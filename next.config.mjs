@@ -1,5 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'inrveiaulksfmzsbyzqj.supabase.co',
+        pathname: '/storage/v1/object/public/images/**',
+      },
+    ],
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Prevent bundling optional/native packages that are not available in the Vercel environment

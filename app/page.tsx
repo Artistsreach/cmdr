@@ -1,12 +1,12 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import FlickeringGrid from '@/components/ui/flickering-grid';
 
-export default function Chat() {
+function Chat() {
   const { messages, input, handleInputChange, handleSubmit } = useChat({
     maxSteps: 5,
   });
@@ -109,5 +109,13 @@ export default function Chat() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <Chat />
+    </Suspense>
   );
 }
