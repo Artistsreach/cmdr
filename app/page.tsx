@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import FlickeringGrid from '@/components/ui/flickering-grid';
@@ -14,6 +14,22 @@ function Chat() {
   const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const autoStartedRef = useRef(false);
+  const [assistantIdx, setAssistantIdx] = useState<number>(-1);
+
+  // Only assistant text messages (exclude tool invocations)
+  const assistantMessages = useMemo(() =>
+    messages.filter(m => m.role === 'assistant' && !!m.content?.trim()),
+    [messages]
+  );
+
+  // When messages change, default to the latest assistant message
+  useEffect(() => {
+    if (assistantMessages.length) {
+      setAssistantIdx(assistantMessages.length - 1);
+    } else {
+      setAssistantIdx(-1);
+    }
+  }, [assistantMessages.length]);
 
   // Auto-start when a `command` (or `cmd`) query param is present
   useEffect(() => {
@@ -27,7 +43,7 @@ function Chat() {
         setTimeout(() => {
           const form = document.getElementById('chat-form') as HTMLFormElement | null;
           form?.requestSubmit();
-        }, 0);
+        }, 50);
       } catch {}
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,7 +70,11 @@ function Chat() {
 
   const handleSubmitWrapper = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    handleSubmit(e, { data: { message: input } });
+    // Read the value from the form to mirror actual submit behavior
+    const form = e.currentTarget as HTMLFormElement;
+    const fd = new FormData(form);
+    const value = (fd.get('chat-input') as string | null) ?? input;
+    handleSubmit(e, { data: { message: value } });
   };
 
   return (
@@ -88,10 +108,43 @@ function Chat() {
       {/* Floating Input Only Overlay */}
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mb-6 flex justify-center px-4">
         <div className="pointer-events-auto w-full max-w-2xl rounded-xl border border-white/10 bg-black/60 backdrop-blur-xl shadow-2xl">
-          <div className="px-4 py-3">
+          <div className="px-4 py-3 space-y-3">
+            {/* Assistant bubble (one at a time) */}
+            {assistantIdx > -1 && assistantMessages[assistantIdx] && (
+              <div className="relative w-full rounded-lg border border-gray-700 bg-neutral-900/90 text-white px-3 py-3">
+                <div className="pr-16 whitespace-pre-wrap text-sm leading-relaxed">
+                  {assistantMessages[assistantIdx].content}
+                </div>
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-1">
+                  <button
+                    type="button"
+                    className="h-7 w-7 rounded-md border border-gray-700 bg-neutral-800 text-gray-200 hover:text-green-400 disabled:opacity-40"
+                    onClick={() => setAssistantIdx(i => Math.max(0, i - 1))}
+                    disabled={assistantIdx <= 0}
+                    aria-label="Previous assistant message"
+                    title="Previous"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    className="h-7 w-7 rounded-md border border-gray-700 bg-neutral-800 text-gray-200 hover:text-green-400 disabled:opacity-40"
+                    onClick={() => setAssistantIdx(i => Math.min(assistantMessages.length - 1, i + 1))}
+                    disabled={assistantIdx >= assistantMessages.length - 1}
+                    aria-label="Next assistant message"
+                    title="Next"
+                  >
+                    ▼
+                  </button>
+                </div>
+              </div>
+            )}
             <form id="chat-form" onSubmit={handleSubmitWrapper} className="w-full relative">
               <input
                 className="w-full p-3 pr-12 rounded-md border border-gray-600 bg-neutral-900/80 text-white placeholder-gray-400 transition-all duration-200 ease-in-out shadow-md shadow-black/40 focus:border-blue-400 focus:shadow-lg focus:shadow-blue-400/30 outline-none"
+                name="chat-input"
+                autoComplete="off"
+                autoFocus
                 value={input}
                 placeholder="Type a command, ex. build a project managment app named Xilo"
                 onChange={handleInputChange}
