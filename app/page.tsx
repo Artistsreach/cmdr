@@ -61,10 +61,10 @@ function Chat() {
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
     if (lastMessage?.toolInvocations) {
-      for (const invocation of lastMessage.toolInvocations as unknown as Array<any>) {
+      for (const invocation of lastMessage.toolInvocations) {
         // The result is populated by the useChat hook
-        if (invocation.result) {
-          const result = invocation.result;
+        if ('result' in invocation && invocation.result) {
+          const result = (invocation as any).result;
           if (result.debugUrl) {
             const dbg = result.debugUrl;
             setLiveViewUrl(`${dbg}&navBar=false`);
