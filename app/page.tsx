@@ -1,7 +1,8 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import FlickeringGrid from '@/components/ui/flickering-grid';
 
 export default function Chat() {
@@ -10,6 +11,23 @@ export default function Chat() {
   });
   
   const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const autoStartedRef = useRef(false);
+
+  // Auto-start when a `command` (or `cmd`) query param is present
+  useEffect(() => {
+    const param = searchParams?.get('command') ?? searchParams?.get('cmd');
+    if (param && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      try {
+        // Trigger the chat submission with the preset command
+        handleSubmit(new Event('submit') as unknown as React.FormEvent<HTMLFormElement>, {
+          data: { message: param },
+        });
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
