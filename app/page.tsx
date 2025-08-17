@@ -20,11 +20,14 @@ function Chat() {
     const param = searchParams?.get('command') ?? searchParams?.get('cmd');
     if (param && !autoStartedRef.current) {
       autoStartedRef.current = true;
+      // Mirror the manual flow: set input, then submit the real form
       try {
-        // Trigger the chat submission with the preset command
-        handleSubmit(new Event('submit') as unknown as React.FormEvent<HTMLFormElement>, {
-          data: { message: param },
-        });
+        handleInputChange({ target: { value: param } } as unknown as React.ChangeEvent<HTMLInputElement>);
+        // Allow state to flush before submitting
+        setTimeout(() => {
+          const form = document.getElementById('chat-form') as HTMLFormElement | null;
+          form?.requestSubmit();
+        }, 0);
       } catch {}
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,7 +89,7 @@ function Chat() {
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mb-6 flex justify-center px-4">
         <div className="pointer-events-auto w-full max-w-2xl rounded-xl border border-white/10 bg-black/60 backdrop-blur-xl shadow-2xl">
           <div className="px-4 py-3">
-            <form onSubmit={handleSubmitWrapper} className="w-full relative">
+            <form id="chat-form" onSubmit={handleSubmitWrapper} className="w-full relative">
               <input
                 className="w-full p-3 pr-12 rounded-md border border-gray-600 bg-neutral-900/80 text-white placeholder-gray-400 transition-all duration-200 ease-in-out shadow-md shadow-black/40 focus:border-blue-400 focus:shadow-lg focus:shadow-blue-400/30 outline-none"
                 value={input}
