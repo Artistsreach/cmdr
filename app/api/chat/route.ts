@@ -21,8 +21,34 @@ const STAGEHAND_POOL: Map<string, Stagehand> = globalThis.__STAGEHAND_POOL__ ?? 
 try { (process as unknown as EventEmitter).setMaxListeners?.(30); } catch {}
 
 // Helper functions (not exported)
+async function getStagehand(sessionId: string): Promise<Stagehand> {
+  let stagehand = STAGEHAND_POOL.get(sessionId);
+  if (stagehand) {
+    return stagehand;
+  }
+
+  stagehand = new Stagehand({
+    env: 'BROWSERBASE',
+    apiKey: process.env.BROWSERBASE_API_KEY,
+    projectId: process.env.BROWSERBASE_PROJECT_ID,
+    browserbaseSessionID: sessionId,
+    modelName: 'gpt-4o',
+    modelClientOptions: {
+      apiKey: process.env.OPENAI_API_KEY,
+    },
+    disablePino: true,
+    verbose: 0,
+    domSettleTimeoutMs: 60000,
+    selfHeal: true,
+  });
+
+  await stagehand.init();
+  STAGEHAND_POOL.set(sessionId, stagehand);
+  return stagehand;
+}
+
 async function getDebugUrl(id: string) {
-  const response = await fetch(`https://www.browserbase.com/v1/sessions/${id}/debug`, {
+  const response = await fetch(`https://api.browserbase.com/v1/sessions/${id}/debug`, {
     method: "GET",
     headers: {
       "x-bb-api-key": bb_api_key,
@@ -61,7 +87,7 @@ async function createSessionWithOptions(opts: {
     },
   };
 
-  const response = await fetch(`https://www.browserbase.com/v1/sessions`, {
+  const response = await fetch(`https://api.browserbase.com/v1/sessions`, {
     method: 'POST',
     headers: {
       'x-bb-api-key': bb_api_key,
@@ -74,7 +100,7 @@ async function createSessionWithOptions(opts: {
 }
 
 async function createSession() {
-  const response = await fetch(`https://www.browserbase.com/v1/sessions`, {
+  const response = await fetch(`https://api.browserbase.com/v1/sessions`, {
     method: "POST",
     headers: {
       "x-bb-api-key": bb_api_key,
@@ -173,26 +199,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ instruction, sessionId }) => {
           try {
-            let stagehand = STAGEHAND_POOL.get(sessionId);
-            if (!stagehand) {
-              stagehand = new Stagehand({
-                env: 'BROWSERBASE',
-                apiKey: process.env.BROWSERBASE_API_KEY,
-                projectId: process.env.BROWSERBASE_PROJECT_ID,
-                browserbaseSessionID: sessionId,
-                modelName: 'gpt-5',
-                modelClientOptions: {
-                  apiKey: process.env.OPENAI_API_KEY,
-                },
-                // Avoid pino-pretty transport issues in Next.js bundlers
-                disablePino: true,
-                verbose: 0,
-                domSettleTimeoutMs: 60000,
-                selfHeal: true,
-              });
-              await stagehand.init();
-              STAGEHAND_POOL.set(sessionId, stagehand);
-            }
+            const stagehand = await getStagehand(sessionId);
             const page = stagehand.page;
             try { page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(45000); } catch {}
 
@@ -239,26 +246,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ instruction, sessionId }) => {
           try {
-            let stagehand = STAGEHAND_POOL.get(sessionId);
-            if (!stagehand) {
-              stagehand = new Stagehand({
-                env: 'BROWSERBASE',
-                apiKey: process.env.BROWSERBASE_API_KEY,
-                projectId: process.env.BROWSERBASE_PROJECT_ID,
-                browserbaseSessionID: sessionId,
-                modelName: 'gpt-4o',
-                modelClientOptions: {
-                  apiKey: process.env.OPENAI_API_KEY,
-                },
-                // Avoid pino-pretty transport issues in Next.js bundlers
-                disablePino: true,
-                verbose: 0,
-                domSettleTimeoutMs: 60000,
-                selfHeal: true,
-              });
-              await stagehand.init();
-              STAGEHAND_POOL.set(sessionId, stagehand);
-            }
+            const stagehand = await getStagehand(sessionId);
             const page = stagehand.page;
 
             try { page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(45000); } catch {}
@@ -314,23 +302,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ url, sessionId }) => {
           try {
-            let stagehand = STAGEHAND_POOL.get(sessionId);
-            if (!stagehand) {
-              stagehand = new Stagehand({
-                env: 'BROWSERBASE',
-                apiKey: process.env.BROWSERBASE_API_KEY,
-                projectId: process.env.BROWSERBASE_PROJECT_ID,
-                browserbaseSessionID: sessionId,
-                modelName: 'gpt-4o',
-                modelClientOptions: { apiKey: process.env.OPENAI_API_KEY },
-                disablePino: true,
-                verbose: 0,
-                domSettleTimeoutMs: 60000,
-                selfHeal: true,
-              });
-              await stagehand.init();
-              STAGEHAND_POOL.set(sessionId, stagehand);
-            }
+            const stagehand = await getStagehand(sessionId);
             const page = stagehand.page;
             await page.goto(url, { waitUntil: 'load' });
             try { await page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch {}
@@ -363,23 +335,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ query, sessionId }) => {
           try {
-            let stagehand = STAGEHAND_POOL.get(sessionId);
-            if (!stagehand) {
-              stagehand = new Stagehand({
-                env: 'BROWSERBASE',
-                apiKey: process.env.BROWSERBASE_API_KEY,
-                projectId: process.env.BROWSERBASE_PROJECT_ID,
-                browserbaseSessionID: sessionId,
-                modelName: 'gpt-4o',
-                modelClientOptions: { apiKey: process.env.OPENAI_API_KEY },
-                disablePino: true,
-                verbose: 0,
-                domSettleTimeoutMs: 60000,
-                selfHeal: true,
-              });
-              await stagehand.init();
-              STAGEHAND_POOL.set(sessionId, stagehand);
-            }
+            const stagehand = await getStagehand(sessionId);
             const page = stagehand.page;
             await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, { waitUntil: 'load' });
             try { await page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch {}
@@ -421,23 +377,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ url, sessionId }) => {
           try {
-            let stagehand = STAGEHAND_POOL.get(sessionId);
-            if (!stagehand) {
-              stagehand = new Stagehand({
-                env: 'BROWSERBASE',
-                apiKey: process.env.BROWSERBASE_API_KEY,
-                projectId: process.env.BROWSERBASE_PROJECT_ID,
-                browserbaseSessionID: sessionId,
-                modelName: 'gpt-4o',
-                modelClientOptions: { apiKey: process.env.OPENAI_API_KEY },
-                disablePino: true,
-                verbose: 0,
-                domSettleTimeoutMs: 60000,
-                selfHeal: true,
-              });
-              await stagehand.init();
-              STAGEHAND_POOL.set(sessionId, stagehand);
-            }
+            const stagehand = await getStagehand(sessionId);
             const page = stagehand.page;
             await page.goto(url);
             try { await page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch {}
