@@ -2,6 +2,8 @@
 
 import { useChat } from 'ai/react';
 import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut, linkWithPopup, unlink, type User } from 'firebase/auth';
+import { auth, GoogleAuthProvider } from '@/lib/firebaseClient';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import FlickeringGrid from '@/components/ui/flickering-grid';
@@ -16,6 +18,7 @@ function Chat() {
   const autoStartedRef = useRef(false);
   const [assistantIdx, setAssistantIdx] = useState<number>(-1);
   const [showMessages, setShowMessages] = useState<boolean>(true);
+  const [user, setUser] = useState<User | null>(null);
 
   // Only assistant text messages (exclude tool invocations)
   const assistantMessages = useMemo(() =>
@@ -31,6 +34,12 @@ function Chat() {
       setAssistantIdx(-1);
     }
   }, [assistantMessages.length]);
+
+  // Firebase Auth: subscribe to auth state
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u: User | null) => setUser(u));
+    return () => unsub();
+  }, []);
 
   // Auto-start when a `command` (or `cmd`) query param is present
   useEffect(() => {
@@ -78,8 +87,60 @@ function Chat() {
     handleSubmit(e, { data: { message: value } });
   };
 
+  // Auth actions
+  const provider = new GoogleAuthProvider();
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error('Google sign-in failed', err);
+      alert('Google sign-in failed. See console for details.');
+    }
+  };
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Sign-out failed', err);
+    }
+  };
+  const handleLinkGoogle = async () => {
+    if (!auth.currentUser) return alert('Sign in first.');
+    try {
+      await linkWithPopup(auth.currentUser, provider);
+      alert('Google account linked.');
+    } catch (err) {
+      console.error('Link failed', err);
+      alert('Link failed. If the account exists, sign in with Google, then merge per your policy.');
+    }
+  };
+  const handleUnlinkGoogle = async () => {
+    if (!auth.currentUser) return alert('Sign in first.');
+    try {
+      await unlink(auth.currentUser, 'google.com');
+      alert('Google provider unlinked.');
+    } catch (err) {
+      console.error('Unlink failed', err);
+    }
+  };
+
   return (
     <div className="min-h-screen w-full relative">
+      {/* Top Auth Bar */}
+      <div className="fixed top-3 right-3 z-30 flex items-center gap-2 rounded-lg border border-white/10 bg-black/60 px-3 py-2 backdrop-blur">
+        {user ? (
+          <>
+            <span className="text-xs text-gray-200 max-w-[200px] truncate" title={user.email || user.uid}>
+              {user.email || user.uid}
+            </span>
+            <button onClick={handleLinkGoogle} className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-200 hover:text-green-400">Link Google</button>
+            <button onClick={handleUnlinkGoogle} className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-200 hover:text-green-400">Unlink Google</button>
+            <button onClick={handleSignOut} className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-200 hover:text-red-400">Sign out</button>
+          </>
+        ) : (
+          <button onClick={handleGoogleSignIn} className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-200 hover:text-green-400">Sign in with Google</button>
+        )}
+      </div>
       {/* Fullscreen Live View background */}
       {liveViewUrl ? (
         <iframe
